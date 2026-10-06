@@ -1,0 +1,6 @@
+{
+  "name": "Folio Notes & Canvas",
+  "description": "Fast, minimal, and tactile workspace for notes, infinite canvas, handwriting, research curation, PDF annotation, and quick capture.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
