@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Note, CanvasNode, CanvasEdge, InkStroke, CanvasNodeType } from '../types/note';
+import { Note, CanvasNode, CanvasEdge, InkStroke, CanvasNodeType, InkToolType } from '../types/note';
 import { HandwritingCanvas } from './HandwritingCanvas';
 import {
   StickyNote,
@@ -10,12 +10,16 @@ import {
   ZoomOut,
   Maximize,
   Pen,
+  Pencil,
+  Highlighter,
+  Eraser,
   Move,
   Trash2,
   Plus,
   Compass,
   Palette,
-  ExternalLink
+  ExternalLink,
+  Sparkles
 } from 'lucide-react';
 
 interface CanvasEditorProps {
@@ -48,6 +52,55 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
   });
 
   const [activeToolMode, setActiveToolMode] = useState<'select' | 'pan' | 'draw'>('select');
+  const [drawTool, setDrawTool] = useState<InkToolType>('pen');
+  const [drawColor, setDrawColor] = useState<string>('#18181b');
+  const [customColors, setCustomColors] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('folio_custom_ink_colors');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [drawWidth, setDrawWidth] = useState<number>(2.5);
+
+  const addCustomColor = (color: string) => {
+    if (customColors.includes(color)) return;
+    const next = [...customColors, color].slice(-6);
+    setCustomColors(next);
+    localStorage.setItem('folio_custom_ink_colors', JSON.stringify(next));
+    setDrawColor(color);
+  };
+
+  const removeCustomColor = (color: string) => {
+    const next = customColors.filter(c => c !== color);
+    setCustomColors(next);
+    localStorage.setItem('folio_custom_ink_colors', JSON.stringify(next));
+  };
+
+  // Keyboard shortcut Alt+C to cycle active colors quickly
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        const baseColors = ['#18181b', '#2563eb', '#dc2626', '#059669', '#7c3aed', '#d97706'];
+        const allColors = [...baseColors, ...customColors];
+        const currentIdx = allColors.indexOf(drawColor);
+        const nextIdx = (currentIdx + 1) % allColors.length;
+        const nextColor = allColors[nextIdx];
+        setDrawColor(nextColor);
+
+        // Circular ink switcher toast
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 px-3.5 py-1.5 bg-stone-950 text-stone-200 text-xs font-semibold rounded-full shadow-xl z-50 flex items-center gap-2 border border-stone-850 animate-bounce';
+        toast.innerHTML = `<span class="w-3.5 h-3.5 rounded-full border border-stone-700" style="background-color: ${nextColor}"></span> Ink Switched`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 1000);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [drawColor, customColors]);
   const [nodes, setNodes] = useState<CanvasNode[]>(note.canvasNodes || []);
   const [edges, setEdges] = useState<CanvasEdge[]>(note.canvasEdges || []);
   const [strokes, setStrokes] = useState<InkStroke[]>(note.canvasStrokes || []);
@@ -377,6 +430,140 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
         )}
       </div>
 
+      {/* Expressive Ink & Stylus Sub-Toolbar (Active when drawing) */}
+      {activeToolMode === 'draw' && (
+        <div className="absolute top-18 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 p-1.5 bg-stone-900/90 text-white backdrop-blur-md rounded-2xl shadow-xl border border-stone-800 animate-in fade-in slide-in-from-top-2 duration-150">
+          {/* Tool Preset Selector */}
+          <div className="flex items-center gap-1 bg-stone-800/80 p-0.5 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setDrawTool('pen')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                drawTool === 'pen' ? 'bg-amber-500 text-stone-950 font-semibold' : 'hover:bg-stone-700 text-stone-300'
+              }`}
+              title="Calligraphic Fountain Pen"
+            >
+              <Pen className="w-3.5 h-3.5" />
+              <span>Pen</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDrawTool('pencil')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                drawTool === 'pencil' ? 'bg-amber-500 text-stone-950 font-semibold' : 'hover:bg-stone-700 text-stone-300'
+              }`}
+              title="Graphite Pencil"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              <span>Pencil</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDrawTool('highlighter')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                drawTool === 'highlighter' ? 'bg-amber-500 text-stone-950 font-semibold' : 'hover:bg-stone-700 text-stone-300'
+              }`}
+              title="Solar Highlighter"
+            >
+              <Highlighter className="w-3.5 h-3.5" />
+              <span>Highlighter</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDrawTool('eraser')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                drawTool === 'eraser' ? 'bg-red-500 text-white font-semibold' : 'hover:bg-stone-700 text-stone-300'
+              }`}
+              title="Precision Eraser"
+            >
+              <Eraser className="w-3.5 h-3.5" />
+              <span>Eraser</span>
+            </button>
+          </div>
+
+          <div className="h-4 w-px bg-stone-700" />
+
+          {/* Color Palette */}
+          <div className="flex items-center gap-1.5 px-1">
+            {[
+              { color: '#18181b', name: 'Ink Black' },
+              { color: '#2563eb', name: 'Fountain Blue' },
+              { color: '#dc2626', name: 'Crimson' },
+              { color: '#059669', name: 'Forest Green' },
+              { color: '#7c3aed', name: 'Violet' },
+              { color: '#d97706', name: 'Amber' },
+            ].map(({ color, name }) => (
+              <button
+                key={color}
+                type="button"
+                onClick={() => setDrawColor(color)}
+                title={name}
+                className={`w-5 h-5 rounded-full border transition-transform ${
+                  drawColor === color ? 'scale-125 border-white ring-2 ring-amber-400' : 'border-stone-600 hover:scale-110'
+                }`}
+                style={{ backgroundColor: color }}
+              />
+            ))}
+
+            {/* Custom Presets */}
+            {customColors.map(color => (
+              <button
+                key={color}
+                type="button"
+                onClick={() => setDrawColor(color)}
+                onDoubleClick={() => removeCustomColor(color)}
+                title="Double click to remove custom preset"
+                className={`w-5 h-5 rounded-full border transition-transform ${
+                  drawColor === color ? 'scale-125 border-white ring-2 ring-amber-400' : 'border-stone-600 hover:scale-110'
+                }`}
+                style={{ backgroundColor: color }}
+              />
+            ))}
+
+            {/* Color Picker Button */}
+            <div className="relative w-5 h-5 rounded-full border border-stone-600 bg-linear-to-tr from-rose-400 via-fuchsia-500 to-indigo-500 cursor-pointer overflow-hidden flex items-center justify-center hover:scale-115 transition-transform" title="Select & Save Custom Color">
+              <input
+                type="color"
+                onChange={(e) => addCustomColor(e.target.value)}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+              <span className="text-[10px] font-bold text-white pointer-events-none">+</span>
+            </div>
+          </div>
+
+          <div className="h-4 w-px bg-stone-700" />
+
+          {/* Width Presets */}
+          <div className="flex items-center gap-1 bg-stone-800/80 p-0.5 rounded-xl">
+            {[
+              { label: 'Fine', w: 1.5 },
+              { label: 'Regular', w: 2.5 },
+              { label: 'Medium', w: 4.0 },
+              { label: 'Bold', w: 6.0 },
+            ].map(({ label, w }) => (
+              <button
+                key={w}
+                type="button"
+                onClick={() => setDrawWidth(w)}
+                className={`px-2 py-0.5 text-[11px] font-mono rounded-md transition-colors ${
+                  drawWidth === w ? 'bg-amber-400 text-stone-950 font-bold' : 'text-stone-300 hover:bg-stone-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="h-4 w-px bg-stone-700" />
+
+          {/* Dynamic Velocity & Pressure Badge */}
+          <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 text-amber-300 text-[10px] font-mono rounded-lg border border-amber-500/20">
+            <Sparkles className="w-3 h-3 text-amber-400 animate-pulse" />
+            <span>Dynamic Velocity & Pressure Active</span>
+          </div>
+        </div>
+      )}
+
       {/* Floating Zoom & Minimap Widget */}
       <div className="absolute bottom-6 right-6 z-30 flex items-center gap-1 bg-white/95 backdrop-blur-md p-1.5 rounded-2xl shadow-lg border border-stone-200/90 text-stone-600">
         <button
@@ -579,6 +766,9 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({
                 height={8000}
                 background="transparent"
                 showToolbar={false}
+                activeTool={drawTool}
+                selectedColor={drawColor}
+                strokeWidth={drawWidth}
                 className="border-none bg-transparent"
               />
             )}

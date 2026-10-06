@@ -128,9 +128,39 @@ export interface PDFTextBox {
   backgroundColor?: string;
 }
 
+export interface PDFHighlightRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PDFHighlight {
+  id: string;
+  pageNumber: number;
+  text: string;
+  color: string;
+  rects: PDFHighlightRect[];
+  comment?: string;
+  createdAt: number;
+}
+
+export interface PDFStamp {
+  id: string;
+  x: number;
+  y: number;
+  type: 'correct' | 'incorrect' | 'full-marks' | 'warning' | 'question' | 'star' | 'grade-badge' | 'custom';
+  label: string;
+  scoreText?: string;
+  color: string;
+  scale?: number;
+}
+
 export interface PDFPageAnnotation {
   strokes: InkStroke[];
   textBoxes?: PDFTextBox[];
+  highlights?: PDFHighlight[];
+  stamps?: PDFStamp[];
   stickyNotes: {
     id: string;
     x: number;
@@ -150,10 +180,33 @@ export interface HomeWidgetConfig {
   sortBy: 'recent' | 'updated' | 'title';
 }
 
+export interface PDFOcrLine {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  confidence?: number;
+}
+
+export interface PDFOcrPageResult {
+  fullText: string;
+  lines: PDFOcrLine[];
+  processedAt: number;
+}
+
 export interface PDFDocumentData {
   fileName: string;
-  pdfUrl?: string; // Blob url or data url or bundled sample
+  fileSize?: string;
+  pdfUrl?: string; // Blob url, object url, or data url
+  pageImages?: Record<number, string>; // Cached rendered image data urls per page
+  pageTexts?: Record<number, string>; // Extracted text per page
+  ocrResults?: Record<number, PDFOcrPageResult>; // Scanned image OCR text & line bounding boxes
   totalPages: number;
+  tutorialMode?: 'student' | 'lecturer';
+  showGridOverlay?: boolean;
+  showLinedOverlay?: boolean;
+  activeTemplateId?: string;
   annotations: Record<number, PDFPageAnnotation>;
 }
 
@@ -162,6 +215,28 @@ export interface ScratchpadData {
   initialDurationMs?: number;
   isExpired: boolean;
   category?: 'quick-thought' | 'meeting' | 'temporary-code' | 'reading-scrap';
+}
+
+export interface Flashcard {
+  id: string;
+  question: string;
+  answer: string;
+  category?: 'definition' | 'theorem' | 'concept' | 'problem' | 'formula' | 'general';
+  source?: 'manual' | 'extracted_term' | 'extracted_qa' | 'highlight';
+  sourcePage?: number;
+  hint?: string;
+  lastReviewedAt?: number;
+  easeRating?: 'easy' | 'medium' | 'hard';
+  masteryLevel?: number; // 0 to 5
+  createdAt: number;
+}
+
+export interface HandwritingIndexData {
+  fullText: string;
+  indexedAt: number;
+  strokeCount: number;
+  wordCount: number;
+  recognizedLines?: { text: string; yMin: number; yMax: number }[];
 }
 
 export interface Note {
@@ -180,6 +255,7 @@ export interface Note {
   inlineInks?: InlineInkBlock[];
   images?: NoteImageAttachment[];
   pageStrokes?: InkStroke[]; // Full overlay handwriting
+  handwritingIndex?: HandwritingIndexData; // Indexed text from handwriting ink layers
 
   // Infinite canvas data
   canvasNodes?: CanvasNode[];
@@ -193,6 +269,22 @@ export interface Note {
   scratchpadData?: ScratchpadData;
   audioRecordings?: AudioRecording[];
   versions?: VersionSnapshot[];
+  flashcards?: Flashcard[];
+}
+
+export type SmartFolderRuleField = 'tag' | 'title' | 'type';
+export type SmartFolderRuleOperator = 'contains' | 'equals' | 'startsWith';
+
+export interface SmartFolderRule {
+  id: string;
+  field: SmartFolderRuleField;
+  operator: SmartFolderRuleOperator;
+  value: string;
+}
+
+export interface SmartFolderConfig {
+  matchMode: 'all' | 'any'; // AND vs OR
+  rules: SmartFolderRule[];
 }
 
 export interface NotebookFolder {
@@ -201,7 +293,51 @@ export interface NotebookFolder {
   iconName: string;
   color: string;
   description?: string;
+  isSmart?: boolean;
+  smartConfig?: SmartFolderConfig;
 }
+
+export const isNoteMatchingSmartFolder = (note: Note, folder: NotebookFolder): boolean => {
+  if (!folder.isSmart || !folder.smartConfig || folder.smartConfig.rules.length === 0) {
+    return note.folderId === folder.id;
+  }
+
+  const { matchMode, rules } = folder.smartConfig;
+
+  const checkRule = (rule: SmartFolderRule): boolean => {
+    const val = rule.value.toLowerCase().trim();
+    if (!val) return true;
+
+    if (rule.field === 'tag') {
+      const cleanTag = val.replace(/^#/, '');
+      return note.tags.some(t => {
+        const tLower = t.toLowerCase();
+        if (rule.operator === 'equals') return tLower === cleanTag;
+        if (rule.operator === 'startsWith') return tLower.startsWith(cleanTag);
+        return tLower.includes(cleanTag);
+      });
+    }
+
+    if (rule.field === 'title') {
+      const titleLower = (note.title || '').toLowerCase();
+      if (rule.operator === 'equals') return titleLower === val;
+      if (rule.operator === 'startsWith') return titleLower.startsWith(val);
+      return titleLower.includes(val);
+    }
+
+    if (rule.field === 'type') {
+      return note.type.toLowerCase() === val;
+    }
+
+    return false;
+  };
+
+  if (matchMode === 'all') {
+    return rules.every(checkRule);
+  } else {
+    return rules.some(checkRule);
+  }
+};
 
 export type ViewFilter = 
   | 'home'

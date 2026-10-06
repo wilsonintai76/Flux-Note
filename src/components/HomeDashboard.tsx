@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Note, NotebookFolder, NoteType } from '../types/note';
+import { SyncState } from '../types/sync';
+import { syncService } from '../services/syncService';
 import { PersonalFocusWidget } from './PersonalFocusWidget';
 import {
   FileText,
@@ -16,7 +18,12 @@ import {
   Folder,
   Tag,
   PenTool,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Cloud,
+  CloudOff,
+  AlertTriangle,
+  RefreshCw,
+  Split
 } from 'lucide-react';
 
 interface HomeDashboardProps {
@@ -28,6 +35,7 @@ interface HomeDashboardProps {
   onOpenQuickCapture: () => void;
   onSelectFolder: (folderId: string) => void;
   onTogglePin: (noteId: string) => void;
+  onOpenSyncManager?: () => void;
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
@@ -39,9 +47,15 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenQuickCapture,
   onSelectFolder,
   onTogglePin,
+  onOpenSyncManager,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [syncState, setSyncState] = useState<SyncState>(() => syncService.getState());
+
+  useEffect(() => {
+    return syncService.subscribe((state) => setSyncState(state));
+  }, []);
 
   const pinnedNotes = notes.filter(n => n.isPinned && !n.isArchived);
   const scratchpads = notes.filter(n => n.type === 'scratchpad' && !n.isArchived);
@@ -131,6 +145,67 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Sync & Conflict Notification Alert Banner (if pending offline items or conflicts) */}
+        {(syncState.conflictsCount > 0 || !syncState.effectiveOnline || syncState.pendingUploadsCount > 0) && (
+          <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-200 ${
+            syncState.conflictsCount > 0
+              ? 'bg-rose-50/90 border-rose-200 text-rose-950'
+              : !syncState.effectiveOnline
+                ? 'bg-amber-50/90 border-amber-200 text-amber-950'
+                : 'bg-blue-50/90 border-blue-200 text-blue-950'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-xl shrink-0 ${
+                syncState.conflictsCount > 0
+                  ? 'bg-rose-100 text-rose-700'
+                  : !syncState.effectiveOnline
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-blue-100 text-blue-700'
+              }`}>
+                {syncState.conflictsCount > 0 ? (
+                  <AlertTriangle className="w-5 h-5" />
+                ) : !syncState.effectiveOnline ? (
+                  <CloudOff className="w-5 h-5" />
+                ) : (
+                  <Cloud className="w-5 h-5" />
+                )}
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-stone-900">
+                  {syncState.conflictsCount > 0
+                    ? `${syncState.conflictsCount} Unresolved Sync Conflict(s)`
+                    : !syncState.effectiveOnline
+                      ? `Working in ${syncState.isSimulatedOffline ? 'Simulated Offline' : 'Offline'} Mode`
+                      : `${syncState.pendingUploadsCount} Pending Cloud Upload(s)`}
+                </h4>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  {syncState.conflictsCount > 0
+                    ? 'Divergent revisions detected between this device and the cloud. Resolve side-by-side without data loss.'
+                    : !syncState.effectiveOnline
+                      ? `${syncState.pendingUploadsCount} note(s) modified locally. All edits will auto-reconcile when reconnected.`
+                      : 'Changes saved locally and queued for immediate cloud replication.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+              <button
+                type="button"
+                onClick={onOpenSyncManager}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shadow-2xs transition-all ${
+                  syncState.conflictsCount > 0
+                    ? 'bg-rose-600 hover:bg-rose-500'
+                    : !syncState.effectiveOnline
+                      ? 'bg-amber-800 hover:bg-amber-700'
+                      : 'bg-stone-900 hover:bg-stone-800'
+                }`}
+              >
+                {syncState.conflictsCount > 0 ? 'Resolve Conflicts →' : 'Open Sync Manager →'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Quick Launch Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

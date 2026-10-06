@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Note, NotebookFolder, NoteType, ViewFilter, VersionSnapshot } from './types/note';
+import { AuthState, UserProfile } from './types/auth';
 import { NoteStorageService } from './services/storage';
+import { authService } from './services/authService';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { HomeDashboard } from './components/HomeDashboard';
@@ -13,12 +15,19 @@ import { QuickSwitcher } from './components/QuickSwitcher';
 import { QuickCaptureModal } from './components/QuickCaptureModal';
 import { VersionHistoryModal } from './components/VersionHistoryModal';
 import { ExportModal } from './components/ExportModal';
+import { SyncManagerModal } from './components/SyncManagerModal';
+import { VaultLockModal } from './components/VaultLockModal';
+import { LandingPage } from './components/LandingPage';
+import { FlashcardView } from './components/FlashcardView';
 import { GlobalQuickCaptureBar } from './components/GlobalQuickCaptureBar';
 import { MobileBottomNav } from './components/MobileBottomNav';
+import { syncService } from './services/syncService';
+import { handwritingIndexService } from './services/handwritingIndexService';
 
 export default function App() {
   const [notes, setNotes] = useState<Note[]>(() => NoteStorageService.getNotes());
   const [folders, setFolders] = useState<NotebookFolder[]>(() => NoteStorageService.getFolders());
+  const [authState, setAuthState] = useState<AuthState>(() => authService.getAuthState());
   
   // Navigation & View state
   const [activeView, setActiveView] = useState<ViewFilter>('home');
@@ -39,6 +48,26 @@ export default function App() {
   const [isQuickCaptureOpen, setIsQuickCaptureOpen] = useState(false);
   const [isVersionHistoryOpen, setIsVersionHistoryOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isSyncManagerOpen, setIsSyncManagerOpen] = useState(false);
+  const [isFlashcardsOpen, setIsFlashcardsOpen] = useState(false);
+
+  // Subscribe to auth service state
+  useEffect(() => {
+    return authService.subscribe((state) => {
+      setAuthState(state);
+    });
+  }, []);
+
+  // Initialize sync service and auto-index handwriting ink notes
+  useEffect(() => {
+    syncService.init();
+    handwritingIndexService.indexAllNotes(notes).then(({ updatedNotes, indexedCount }) => {
+      if (indexedCount > 0) {
+        setNotes(updatedNotes);
+        NoteStorageService.saveNotes(updatedNotes);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const handleBeforeInstall = (e: Event) => {
@@ -67,19 +96,24 @@ export default function App() {
 
   // Update a single note
   const handleUpdateNote = useCallback((updatedNote: Note) => {
-    setNotes(prevNotes => {
-      const nextNotes = prevNotes.map(n => (n.id === updatedNote.id ? updatedNote : n));
-      NoteStorageService.saveNotes(nextNotes);
-      return nextNotes;
+    // Asynchronously index handwriting strokes if present
+    handwritingIndexService.indexNoteHandwriting(updatedNote).then((indexedNote) => {
+      setNotes(prevNotes => {
+        const prevNote = prevNotes.find(n => n.id === indexedNote.id);
+        const nextNotes = prevNotes.map(n => (n.id === indexedNote.id ? indexedNote : n));
+        NoteStorageService.saveNotes(nextNotes);
+        syncService.recordLocalNoteChange(indexedNote, 'update', prevNote);
+        return nextNotes;
+      });
+
+      if (activeNote?.id === indexedNote.id) {
+        setActiveNote(indexedNote);
+      }
+
+      setOpenTabs(prevTabs =>
+        prevTabs.map(t => (t.id === indexedNote.id ? indexedNote : t))
+      );
     });
-
-    if (activeNote?.id === updatedNote.id) {
-      setActiveNote(updatedNote);
-    }
-
-    setOpenTabs(prevTabs =>
-      prevTabs.map(t => (t.id === updatedNote.id ? updatedNote : t))
-    );
   }, [activeNote]);
 
   // Open note
@@ -156,11 +190,16 @@ export default function App() {
 
     const nextNotes = [newNote, ...notes];
     syncNotes(nextNotes);
+    syncService.recordLocalNoteChange(newNote, 'create');
     handleSelectNote(newNote);
   };
 
   // Delete note
   const handleDeleteNote = (noteId: string) => {
+    const deleted = notes.find(n => n.id === noteId);
+    if (deleted) {
+      syncService.recordLocalNoteChange(deleted, 'delete');
+    }
     const nextNotes = notes.filter(n => n.id !== noteId);
     syncNotes(nextNotes);
     handleCloseTab(noteId);
@@ -342,6 +381,11 @@ export default function App() {
         e.preventDefault();
         handleCreateNewNote('canvas');
       }
+      // Cmd/Ctrl + L -> Lock Vault
+      else if ((e.metaKey || e.ctrlKey) && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        authService.lockVault();
+      }
       // Cmd/Ctrl + Alt + N or Cmd+N without shift -> New Page Note
       else if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !e.shiftKey) {
         e.preventDefault();
@@ -352,6 +396,16 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [folders, notes, selectedFolderId]);
+
+  // If user is not authenticated, show Landing Page with Hero & Sign In
+  if (!authState.currentUser) {
+    return (
+      <LandingPage
+        onEnterWorkspace={() => authService.loginAsDemo('scholar')}
+        onLoginSuccess={() => {}}
+      />
+    );
+  }
 
   // Render the appropriate main workspace view
   const renderMainWorkspace = () => {
@@ -378,6 +432,12 @@ export default function App() {
             <PdfAnnotator
               note={activeNote}
               onUpdateNote={handleUpdateNote}
+              onOpenFlashcards={() => setIsFlashcardsOpen(true)}
+              onCreateNote={(newNote) => {
+                setNotes(prev => [newNote, ...prev]);
+                NoteStorageService.saveNotes([newNote, ...notes]);
+                setActiveNote(newNote);
+              }}
             />
           );
         case 'scratchpad':
@@ -400,6 +460,7 @@ export default function App() {
               onCreateNewNote={handleCreateNewNote}
               onOpenVersionHistory={() => setIsVersionHistoryOpen(true)}
               onOpenExport={() => setIsExportOpen(true)}
+              onOpenFlashcards={() => setIsFlashcardsOpen(true)}
             />
           );
       }
@@ -434,9 +495,23 @@ export default function App() {
           setActiveView('folder');
         }}
         onTogglePin={handleTogglePin}
+        onOpenSyncManager={() => setIsSyncManagerOpen(true)}
       />
     );
   };
+
+  if (!authState.isAuthenticated) {
+    return (
+      <LandingPage
+        onEnterWorkspace={() => {
+          authService.loginAsDemo('student');
+        }}
+        onLoginSuccess={(user) => {
+          // authState is handled via authService subscription
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen bg-[#faf9f6] text-[#1c1917] overflow-hidden antialiased font-sans">
@@ -461,6 +536,7 @@ export default function App() {
           onCreateNewNote={handleCreateNewNote}
           onCreateFolder={handleCreateFolder}
           onOpenQuickSwitcher={() => setIsQuickSwitcherOpen(true)}
+          onOpenSyncManager={() => setIsSyncManagerOpen(true)}
         />
       </div>
 
@@ -501,6 +577,10 @@ export default function App() {
                 setIsQuickSwitcherOpen(true);
                 setIsMobileSidebarOpen(false);
               }}
+              onOpenSyncManager={() => {
+                setIsSyncManagerOpen(true);
+                setIsMobileSidebarOpen(false);
+              }}
             />
           </div>
         </div>
@@ -513,11 +593,16 @@ export default function App() {
           activeNote={activeNote}
           folders={folders}
           openTabs={openTabs}
+          currentUser={authState.currentUser}
           onSelectTab={handleSelectNote}
           onCloseTab={handleCloseTab}
           onOpenQuickSwitcher={() => setIsQuickSwitcherOpen(true)}
           onOpenQuickCapture={() => setIsQuickCaptureOpen(true)}
           onOpenExport={() => setIsExportOpen(true)}
+          onOpenSyncManager={() => setIsSyncManagerOpen(true)}
+          onOpenFlashcards={() => setIsFlashcardsOpen(true)}
+          onSignOut={() => authService.signOut()}
+          onLockVault={() => authService.lockVault()}
           onToggleMobileSidebar={() => setIsMobileSidebarOpen(true)}
           onBackFromNote={() => setActiveNote(null)}
           canInstall={!!deferredPrompt}
@@ -589,6 +674,34 @@ export default function App() {
             setNotes(NoteStorageService.getNotes());
             setFolders(NoteStorageService.getFolders());
           }}
+        />
+      )}
+
+      {/* Cloud Sync & Offline Manager Modal */}
+      <SyncManagerModal
+        isOpen={isSyncManagerOpen}
+        onClose={() => setIsSyncManagerOpen(false)}
+        notes={notes}
+        onNotesUpdated={(newNotes) => syncNotes(newNotes)}
+        activeNote={activeNote}
+        onSelectNote={handleSelectNote}
+      />
+
+      {/* Flashcard Study Mode Modal */}
+      {isFlashcardsOpen && activeNote && (
+        <FlashcardView
+          note={activeNote}
+          onUpdateNote={handleUpdateNote}
+          onClose={() => setIsFlashcardsOpen(false)}
+        />
+      )}
+
+      {/* Vault Lock Modal */}
+      {authState.isVaultLocked && (
+        <VaultLockModal
+          currentUser={authState.currentUser}
+          onUnlock={(p) => authService.unlockVault(p)}
+          onSignOut={() => authService.signOut()}
         />
       )}
     </div>

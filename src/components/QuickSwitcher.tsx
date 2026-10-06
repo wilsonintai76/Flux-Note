@@ -54,11 +54,12 @@ export const QuickSwitcher: React.FC<QuickSwitcherProps> = ({
     const inContent = n.content.toLowerCase().includes(q);
     const inTags = n.tags.some(t => t.toLowerCase().includes(q));
 
-    // Deep search in research quotes or canvas nodes
+    // Deep search in research quotes, canvas nodes, and handwriting ink transcript
     const inQuotes = n.researchData?.quotes.some(qu => qu.quote.toLowerCase().includes(q));
     const inCanvas = n.canvasNodes?.some(cn => cn.content.toLowerCase().includes(q) || cn.title?.toLowerCase().includes(q));
+    const inHandwriting = n.handwritingIndex?.fullText.toLowerCase().includes(q);
 
-    return inTitle || inContent || inTags || inQuotes || inCanvas;
+    return inTitle || inContent || inTags || inQuotes || inCanvas || inHandwriting;
   });
 
   // Keyboard navigation
@@ -192,6 +193,11 @@ export const QuickSwitcher: React.FC<QuickSwitcherProps> = ({
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold truncate">{note.title}</span>
                         {note.isPinned && <Pin className="w-3 h-3 text-amber-500 fill-current shrink-0" />}
+                        {query.trim() && note.handwritingIndex?.fullText.toLowerCase().includes(query.toLowerCase().trim()) && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 font-bold shrink-0">
+                            ✍️ Ink Match: &quot;{note.handwritingIndex.fullText.slice(0, 30)}...&quot;
+                          </span>
+                        )}
                       </div>
                       <p className="text-[11px] text-stone-400 line-clamp-1 mt-0.5">
                         {note.content.slice(0, 100) || 'Spatial board with nodes'}

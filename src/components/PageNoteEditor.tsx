@@ -31,7 +31,8 @@ import {
   CornerDownLeft,
   Volume2,
   Image as ImageIcon,
-  Upload
+  Upload,
+  Brain
 } from 'lucide-react';
 
 interface PageNoteEditorProps {
@@ -43,6 +44,7 @@ interface PageNoteEditorProps {
   onCreateNewNote?: (type: NoteType, folderId?: string, customTitle?: string) => void;
   onOpenVersionHistory: () => void;
   onOpenExport: () => void;
+  onOpenFlashcards?: () => void;
 }
 
 export const PageNoteEditor: React.FC<PageNoteEditorProps> = ({
@@ -54,6 +56,7 @@ export const PageNoteEditor: React.FC<PageNoteEditorProps> = ({
   onCreateNewNote,
   onOpenVersionHistory,
   onOpenExport,
+  onOpenFlashcards,
 }) => {
   const [content, setContent] = useState(note.content);
   const [title, setTitle] = useState(note.title);
@@ -675,6 +678,19 @@ export const PageNoteEditor: React.FC<PageNoteEditorProps> = ({
               </>
             )}
           </button>
+
+          {/* Flashcard Study Mode Button */}
+          {onOpenFlashcards && (
+            <button
+              type="button"
+              onClick={onOpenFlashcards}
+              title="Study Flashcards for this note"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200/90 hover:bg-amber-100 transition-colors"
+            >
+              <Brain className="w-3.5 h-3.5 text-amber-600" />
+              <span className="hidden sm:inline">Flashcards</span>
+            </button>
+          )}
 
           {/* Toggle Full Page Stylus Overlay */}
           <button

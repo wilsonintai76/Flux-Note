@@ -5,6 +5,21 @@ export const DEFAULT_FOLDERS: NotebookFolder[] = [
   { id: 'research', name: 'Research & Literature', iconName: 'BookOpen', color: '#10b981', description: 'Papers, links, quotes, and research synthesis' },
   { id: 'ideas', name: 'Quick Ideas & Canvas', iconName: 'Sparkles', color: '#8b5cf6', description: 'Mind maps, diagrams, and infinite brainstorm boards' },
   { id: 'personal', name: 'Personal & Journal', iconName: 'User', color: '#f59e0b', description: 'Daily reflections, reading lists, and work logs' },
+  {
+    id: 'smart-exam-prep',
+    name: '🎯 Exam & Project Focus',
+    iconName: 'Zap',
+    color: '#ec4899',
+    description: 'Auto-populated smart folder for exam-prep and algorithm tags',
+    isSmart: true,
+    smartConfig: {
+      matchMode: 'any',
+      rules: [
+        { id: 'r1', field: 'tag', operator: 'contains', value: 'exam-prep' },
+        { id: 'r2', field: 'tag', operator: 'contains', value: 'algorithms' },
+      ]
+    }
+  }
 ];
 
 export const SAMPLE_AUDIO_BEEP_BASE64 = 'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YRAAAACAgICAgICAgICAgICAgICA';
@@ -396,6 +411,32 @@ Time is divided into arbitrary terms, numbered with consecutive integers.
               color: '#fef08a',
               timestamp: Date.now() - 1000 * 60 * 60 * 15
             }
+          ],
+          highlights: [
+            {
+              id: 'hl-sample-1',
+              pageNumber: 1,
+              text: 'Quantum teleportation enables the faithful transmission of an unknown quantum state |ψ⟩ = α|0⟩ + β|1⟩ from a sender (Alice) to a receiver (Bob) through an EPR pair channel and classical communications.',
+              color: '#fef08a',
+              rects: [
+                { x: 62, y: 220, width: 620, height: 18 },
+                { x: 62, y: 240, width: 480, height: 18 }
+              ],
+              comment: 'Core theorem for exam: transmission via entanglement without physical particle movement.',
+              createdAt: Date.now() - 1000 * 60 * 60 * 16
+            },
+            {
+              id: 'hl-sample-2',
+              pageNumber: 1,
+              text: 'No information is transferred faster than light. Classical transmission of the 2 measurement bits from Alice to Bob is strictly required before Bob can reconstruct |ψ⟩.',
+              color: '#bbf7d0',
+              rects: [
+                { x: 60, y: 462, width: 630, height: 18 },
+                { x: 60, y: 482, width: 340, height: 18 }
+              ],
+              comment: 'Prevents superluminal signaling violations (relativistic causality invariant)',
+              createdAt: Date.now() - 1000 * 60 * 60 * 15
+            }
           ]
         },
         2: {
@@ -407,6 +448,20 @@ Time is divided into arbitrary terms, numbered with consecutive integers.
               width: 14,
               opacity: 0.4,
               points: [{ x: 110, y: 220 }, { x: 390, y: 220 }]
+            }
+          ],
+          highlights: [
+            {
+              id: 'hl-sample-3',
+              pageNumber: 2,
+              text: 'Alice applies a CNOT gate on her unknown qubit |ψ⟩ and her half of the EPR pair, followed by a Hadamard transform H on |ψ⟩.',
+              color: '#bfdbfe',
+              rects: [
+                { x: 60, y: 154, width: 640, height: 18 },
+                { x: 60, y: 174, width: 260, height: 18 }
+              ],
+              comment: 'Bell state measurement basis change',
+              createdAt: Date.now() - 1000 * 60 * 60 * 14
             }
           ],
           stickyNotes: [

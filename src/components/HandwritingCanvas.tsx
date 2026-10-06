@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { InkStroke, InkToolType, InkPoint } from '../types/note';
-import { renderBezierStroke, renderLiveBezierSegment, filterJitterPoints } from '../utils/inkSmoothing';
+import { renderBezierStroke, renderLiveBezierSegment, filterJitterPoints, postProcessStrokePoints, eraseStrokesAtPoint } from '../utils/inkSmoothing';
 import { 
   Pen, 
   Highlighter, 
@@ -65,9 +65,20 @@ export const HandwritingCanvas: React.FC<HandwritingCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawing = useRef(false);
   const currentPoints = useRef<InkPoint[]>([]);
+  const activeGestureEraserRef = useRef<boolean>(false);
+  const touchStartTimeRef = useRef<number>(0);
+  const initialStrokesRef = useRef<InkStroke[] | null>(null);
 
   const [internalTool, setInternalTool] = useState<InkToolType>('pen');
   const [internalColor, setInternalColor] = useState<string>('#18181b');
+  const [customColors, setCustomColors] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('folio_custom_ink_colors');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [highlighterColor, setHighlighterColor] = useState<string>('#facc15');
   const [internalWidth, setInternalWidth] = useState<number>(2.5);
   const [undoStack, setUndoStack] = useState<InkStroke[][]>([]);
@@ -77,8 +88,51 @@ export const HandwritingCanvas: React.FC<HandwritingCanvasProps> = ({
   const selectedColor = propSelectedColor ?? internalColor;
   const strokeWidth = propStrokeWidth ?? internalWidth;
   const setActiveTool = setInternalTool;
-  const setSelectedColor = setInternalColor;
+  const setSelectedColor = (color: string) => {
+    setInternalColor(color);
+    if (propSelectedColor === undefined) {
+      setInternalColor(color);
+    }
+  };
   const setStrokeWidth = setInternalWidth;
+
+  const addCustomColor = (color: string) => {
+    if (customColors.includes(color)) return;
+    const next = [...customColors, color].slice(-6);
+    setCustomColors(next);
+    localStorage.setItem('folio_custom_ink_colors', JSON.stringify(next));
+    setSelectedColor(color);
+  };
+
+  const removeCustomColor = (color: string) => {
+    const next = customColors.filter(c => c !== color);
+    setCustomColors(next);
+    localStorage.setItem('folio_custom_ink_colors', JSON.stringify(next));
+  };
+
+  // Keyboard shortcut to cycle colors quickly
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        const baseColors = ['#18181b', '#2563eb', '#dc2626', '#059669', '#7c3aed', '#d97706'];
+        const allColors = [...baseColors, ...customColors];
+        const currentIdx = allColors.indexOf(selectedColor);
+        const nextIdx = (currentIdx + 1) % allColors.length;
+        const nextColor = allColors[nextIdx];
+        setSelectedColor(nextColor);
+
+        // Render circular ink switcher toast
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 px-3.5 py-1.5 bg-stone-950 text-stone-200 text-xs font-semibold rounded-full shadow-xl z-50 flex items-center gap-2 border border-stone-850 animate-bounce';
+        toast.innerHTML = `<span class="w-3.5 h-3.5 rounded-full border border-stone-700" style="background-color: ${nextColor}"></span> Ink Cycled`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 1000);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedColor, customColors]);
 
   // Redraw canvas with Catmull-Rom midpoint Bezier curve smoothing
   const renderStrokes = useCallback((ctx: CanvasRenderingContext2D, strokeList: InkStroke[]) => {
@@ -96,7 +150,7 @@ export const HandwritingCanvas: React.FC<HandwritingCanvasProps> = ({
     renderStrokes(ctx, strokes);
   }, [strokes, renderStrokes]);
 
-  // Adjust canvas resolution for Retina / high-DPI displays
+  // Adjust canvas resolution only when physical container dimensions change
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -107,16 +161,21 @@ export const HandwritingCanvas: React.FC<HandwritingCanvasProps> = ({
     const w = rect.width || 800;
     const h = rect.height || 360;
 
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
+    const targetWidth = Math.round(w * dpr);
+    const targetHeight = Math.round(h * dpr);
 
     const ctx = canvas.getContext('2d');
-    if (ctx) {
+    if (!ctx) return;
+
+    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
       ctx.scale(dpr, dpr);
-      renderStrokes(ctx, strokes);
     }
+
+    renderStrokes(ctx, strokes);
   }, [renderStrokes, strokes]);
 
   const getCanvasCoords = (e: React.PointerEvent<HTMLCanvasElement>): InkPoint => {
@@ -148,10 +207,18 @@ export const HandwritingCanvas: React.FC<HandwritingCanvasProps> = ({
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     isDrawing.current = true;
 
+    // Stylus barrel / secondary button hold (e.buttons === 2, 5, or 32)
+    const isStylusSecondary = e.buttons === 2 || e.buttons === 5 || e.buttons === 32;
+    touchStartTimeRef.current = Date.now();
+    activeGestureEraserRef.current = isStylusSecondary;
+
+    // Save starting snapshot of strokes before draw/erase starts for single undo history commit
+    initialStrokesRef.current = strokes;
+
     const pt = getCanvasCoords(e);
     currentPoints.current = [pt];
 
-    if (activeTool === 'eraser') {
+    if (activeTool === 'eraser' || activeGestureEraserRef.current) {
       eraseAtPoint(pt);
       return;
     }
@@ -182,9 +249,17 @@ export const HandwritingCanvas: React.FC<HandwritingCanvasProps> = ({
     if (!isDrawing.current || readOnly) return;
 
     const pt = getCanvasCoords(e);
+
+    // Two-finger or long touch-down gesture eraser trigger (long-press > 400ms)
+    if (e.pointerType === 'touch' && !activeGestureEraserRef.current && touchStartTimeRef.current > 0) {
+      if (Date.now() - touchStartTimeRef.current > 400) {
+        activeGestureEraserRef.current = true;
+      }
+    }
+
     currentPoints.current.push(pt);
 
-    if (activeTool === 'eraser') {
+    if (activeTool === 'eraser' || activeGestureEraserRef.current) {
       eraseAtPoint(pt);
       return;
     }
@@ -207,20 +282,31 @@ export const HandwritingCanvas: React.FC<HandwritingCanvasProps> = ({
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing.current || readOnly) return;
     isDrawing.current = false;
+    
+    const wasGestureErasing = activeGestureEraserRef.current;
+    activeGestureEraserRef.current = false;
+    touchStartTimeRef.current = 0;
+
     try {
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     } catch {
       // ignore
     }
 
-    if (activeTool === 'eraser') {
+    if (activeTool === 'eraser' || wasGestureErasing) {
+      // Record exactly one single undo checkpoint when eraser action completes
+      if (initialStrokesRef.current && initialStrokesRef.current !== strokes) {
+        setUndoStack(prev => [...prev, initialStrokesRef.current!]);
+        setRedoStack([]);
+      }
+      initialStrokesRef.current = null;
       return;
     }
 
     if (currentPoints.current.length === 0) return;
 
-    // Filter digitizer micro-jitter before saving
-    const smoothedPoints = filterJitterPoints(currentPoints.current);
+    // Post-process stroke points to remove duplicate segments and event-loop latency spikes
+    const smoothedPoints = postProcessStrokePoints(currentPoints.current);
 
     const newStroke: InkStroke = {
       id: 'stroke-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
@@ -231,28 +317,20 @@ export const HandwritingCanvas: React.FC<HandwritingCanvasProps> = ({
       points: smoothedPoints,
     };
 
-    setUndoStack(prev => [...prev, strokes]);
+    setUndoStack(prev => [...prev, initialStrokesRef.current || strokes]);
     setRedoStack([]);
     const nextStrokes = [...strokes, newStroke];
     onChange(nextStrokes);
     currentPoints.current = [];
+    initialStrokesRef.current = null;
   };
 
   const eraseAtPoint = (pt: InkPoint) => {
     const eraserRadius = 14;
-    const remaining = strokes.filter(stroke => {
-      // Check if any point in the stroke is within eraser radius
-      return !stroke.points.some(p => {
-        const dx = p.x - pt.x;
-        const dy = p.y - pt.y;
-        return Math.sqrt(dx * dx + dy * dy) < eraserRadius + stroke.width / 2;
-      });
-    });
+    const updatedStrokes = eraseStrokesAtPoint(strokes, pt, eraserRadius);
 
-    if (remaining.length !== strokes.length) {
-      setUndoStack(prev => [...prev, strokes]);
-      setRedoStack([]);
-      onChange(remaining);
+    if (updatedStrokes !== strokes) {
+      onChange(updatedStrokes);
     }
   };
 
@@ -351,18 +429,45 @@ export const HandwritingCanvas: React.FC<HandwritingCanvasProps> = ({
                   </button>
                 ))
               ) : (
-                INK_COLORS.map(c => (
-                  <button
-                    key={c.value}
-                    type="button"
-                    title={c.name}
-                    onClick={() => setSelectedColor(c.value)}
-                    className="relative w-5 h-5 rounded-full flex items-center justify-center transition-transform hover:scale-110"
-                    style={{ backgroundColor: c.value }}
-                  >
-                    {selectedColor === c.value && <Check className="w-3 h-3 text-white stroke-[3]" />}
-                  </button>
-                ))
+                <>
+                  {INK_COLORS.map(c => (
+                    <button
+                      key={c.value}
+                      type="button"
+                      title={c.name}
+                      onClick={() => setSelectedColor(c.value)}
+                      className="relative w-5 h-5 rounded-full flex items-center justify-center transition-transform hover:scale-110"
+                      style={{ backgroundColor: c.value }}
+                    >
+                      {selectedColor === c.value && <Check className="w-3 h-3 text-white stroke-[3]" />}
+                    </button>
+                  ))}
+
+                  {/* Render Custom Colors */}
+                  {customColors.map(color => (
+                    <button
+                      key={color}
+                      type="button"
+                      title="Double click to remove custom color"
+                      onClick={() => setSelectedColor(color)}
+                      onDoubleClick={() => removeCustomColor(color)}
+                      className="relative w-5 h-5 rounded-full flex items-center justify-center transition-transform hover:scale-115 border border-stone-200 shadow-2xs"
+                      style={{ backgroundColor: color }}
+                    >
+                      {selectedColor === color && <Check className="w-3 h-3 text-white stroke-[3] mix-blend-difference" />}
+                    </button>
+                  ))}
+
+                  {/* Custom Color Picker Input */}
+                  <div className="relative w-5 h-5 rounded-full border border-stone-300 bg-linear-to-tr from-rose-400 via-fuchsia-500 to-indigo-500 flex items-center justify-center cursor-pointer hover:scale-110 transition-transform overflow-hidden shadow-2xs" title="Select & Save Custom Color">
+                    <input
+                      type="color"
+                      onChange={(e) => addCustomColor(e.target.value)}
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    />
+                    <span className="text-[10px] font-bold text-white pointer-events-none">+</span>
+                  </div>
+                </>
               )}
 
               {/* Stroke size selector */}

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Note, NotebookFolder, NoteType, ViewFilter } from '../types/note';
+import { SyncState } from '../types/sync';
+import { syncService } from '../services/syncService';
 import {
   Home,
   FileText,
@@ -22,7 +24,11 @@ import {
   Calendar,
   Clock,
   ArrowDownAZ,
-  Check
+  Check,
+  Cloud,
+  CloudOff,
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 
 export type FolderSortOption = 'alpha' | 'count' | 'default';
@@ -54,6 +60,7 @@ interface SidebarProps {
   onCreateNewNote: (type: NoteType, folderId?: string) => void;
   onCreateFolder: (name: string, color: string) => void;
   onOpenQuickSwitcher: () => void;
+  onOpenSyncManager?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -70,7 +77,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCreateNewNote,
   onCreateFolder,
   onOpenQuickSwitcher,
+  onOpenSyncManager,
 }) => {
+  const [syncState, setSyncState] = useState<SyncState>(() => syncService.getState());
+
+  useEffect(() => {
+    return syncService.subscribe((state) => setSyncState(state));
+  }, []);
   const [foldersExpanded, setFoldersExpanded] = useState(true);
   const [tagsExpanded, setTagsExpanded] = useState(true);
   const [expandedFolderIds, setExpandedFolderIds] = useState<Record<string, boolean>>({
@@ -591,24 +604,67 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Bottom Action Footer */}
-      <div className="p-3 border-t border-stone-200/70 bg-[#f4f3ef] flex items-center justify-between gap-2">
+      <div className="p-3 border-t border-stone-200/70 bg-[#f4f3ef] flex flex-col gap-2">
+        {/* Sync Manager Quick Status Bar */}
         <button
           type="button"
-          onClick={() => onCreateNewNote('page')}
-          className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold shadow-xs transition-colors"
+          onClick={onOpenSyncManager}
+          title="Open Cloud Sync & Offline Manager"
+          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl border text-xs transition-colors ${
+            syncState.conflictsCount > 0
+              ? 'bg-rose-50 border-rose-300 text-rose-800 animate-pulse font-bold'
+              : !syncState.effectiveOnline
+                ? 'bg-amber-50 border-amber-200 text-amber-800'
+                : syncState.pendingUploadsCount > 0
+                  ? 'bg-blue-50 border-blue-200 text-blue-800 font-semibold'
+                  : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+          }`}
         >
-          <Plus className="w-3.5 h-3.5" />
-          <span>New Note</span>
+          <div className="flex items-center gap-1.5">
+            {syncState.conflictsCount > 0 ? (
+              <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+            ) : syncState.isSyncing ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />
+            ) : !syncState.effectiveOnline ? (
+              <CloudOff className="w-3.5 h-3.5 text-amber-600" />
+            ) : (
+              <Cloud className="w-3.5 h-3.5 text-emerald-600" />
+            )}
+            <span className="text-[11px] truncate">
+              {syncState.conflictsCount > 0
+                ? `${syncState.conflictsCount} Conflict(s)`
+                : syncState.isSyncing
+                  ? 'Syncing...'
+                  : !syncState.effectiveOnline
+                    ? `Offline (${syncState.pendingUploadsCount} pending)`
+                    : syncState.pendingUploadsCount > 0
+                      ? `${syncState.pendingUploadsCount} pending upload`
+                      : 'Cloud Synced'}
+            </span>
+          </div>
+
+          <span className="text-[10px] text-stone-400 font-medium">Sync Mgr →</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => onCreateNewNote('canvas')}
-          title="New Infinite Canvas"
-          className="p-2 rounded-xl bg-white border border-stone-200 text-stone-700 hover:bg-stone-100 shadow-2xs transition-colors"
-        >
-          <LayoutGrid className="w-4 h-4 text-purple-600" />
-        </button>
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => onCreateNewNote('page')}
+            className="flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold shadow-xs transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>New Note</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onCreateNewNote('canvas')}
+            title="New Infinite Canvas"
+            className="p-2 rounded-xl bg-white border border-stone-200 text-stone-700 hover:bg-stone-100 shadow-2xs transition-colors"
+          >
+            <LayoutGrid className="w-4 h-4 text-purple-600" />
+          </button>
+        </div>
       </div>
 
       {/* New Folder Modal */}
